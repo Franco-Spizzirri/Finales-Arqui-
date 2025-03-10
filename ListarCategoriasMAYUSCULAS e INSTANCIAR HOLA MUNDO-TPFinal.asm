@@ -2,7 +2,7 @@
 slist: 	.word 0 # Puntero que utilizaran las funciones smalloc y sfree. Es una lista de bloques de memoria libres para asignar nodos
 cclist: .word 0 # Puntero a lista de categorias
 wclist: .word 0 # Puntero a la categoria actual
-schedv: .space 32
+schedv: .space 36
 menu: 	.ascii "Colecciones de objetos categorizados\n"
 	.ascii "====================================\n"
 	.ascii "1-Nueva categoria\n"
@@ -13,11 +13,13 @@ menu: 	.ascii "Colecciones de objetos categorizados\n"
 	.ascii "6-Anexar objeto a la categoria actual\n"
 	.ascii "7-Listar objetos de la categoria\n"
 	.ascii "8-Borrar objeto de la categoria\n"
+	.ascii "9-Instanciar Hola Mundo\n"
 	.ascii "0-Salir\n"
 	.asciiz "Ingrese la opcion deseada: "
 error: 	.asciiz "Error: "
 return: .asciiz "\n"
 catName:.asciiz "\nIngrese el nombre de una categoria: "
+instanciar:.asciiz "\nEscribi Hola mundo:"
 selCat: .asciiz "\nSe ha seleccionado la categoria:"
 idObj: 	.asciiz "\nIngrese el ID del objeto a eliminar: "
 objName:.asciiz "\nIngrese el nombre de un objeto: "
@@ -53,7 +55,9 @@ main:
 
 	la $t1, eliminarObjeto
 	sw $t1, 28($t0)             # Opción 8: Borrar objeto
-
+	
+	la $t1, instanciarHola
+	sw $t1, 32($t0)             # Opción 9: instancia un hola mundo. 
 
 menuBucle:
 # Imprimir el menu con las opciones al usuario
@@ -69,7 +73,7 @@ menuBucle:
     	beqz $t2, exit # Si la opcion es 0 termina el programa
     	li $t3, 1
     	blt $t2, $t3, opcionInvalida # Si la opcion es menor a 1 salta a esa funcion
-    	li $t3, 8
+    	li $t3, 9
     	bgt $t2, $t3, opcionInvalida # Si la opcion es mayor a 8 salta a esa funcion 
 
 #Calcular la posición en schedv (opción - 1) * 4
@@ -188,12 +192,32 @@ imprimirSimbolo:
     	la $a0, greater_symbol # Si el puntero a la lista de categorias es igual a la categoria actual, le imprime un simbolo 
     	syscall
     	
-listarBucle2: # Imprime los nombres de las categorias
-    	lw $a0, 8($t1) # Cargo en a0 el nombre de la categoria
-    	li $v0, 4 # Lo imprimo
-    	syscall
-    	lw $t1, 12($t1) # Cargo en t1 el puntero al nodo siguiente
-    	bne $t1, $t0, listarBucle # Si el siguiente nodo es distinto al primero, salto a listarBucle
+listarBucle2: 
+       lw $a0, 8($t1)          # Carga en $a0 el nombre de la categoría
+       move $t3, $a0           # Muevo nombre de la categoria a t3
+
+convertirBucle:
+        lb $t4, 0($t3)      # Cargo el siguiente byte (carácter) de la cadena
+        beqz $t4, convertirFin  # Si es el final de la cadena (por '\0'), salta a la funcion
+        li $t5, 97           # Cargo el valor ASCII de 'a'
+        li $t6, 122          # Cargo el valor ASCII de 'z'
+        blt $t4, $t5, bucleContinua  # Si el carácter es menor que 'a' se omite la conversion 
+        bgt $t4, $t6, bucleContinua  # Si el carácter es mayor que 'z' se omite la conversion
+
+        subi $t4, $t4, 32     # Convierte el carácter a mayúscula restando 32 a su valor ASCII ('A' = 65 y 'Z' = 90)
+        sb $t4, 0($t3)        # Guarda el carácter convertido en la misma posición de la cadena
+
+bucleContinua:
+        addiu $t3, $t3, 1     # Avanza al siguiente carácter de la cadena
+        j convertirBucle      # Repite el proceso para el siguiente carácter
+
+ convertirFin:
+    # Ahora imprimimos el nombre de la categoría en mayúsculas
+    li $v0, 4               # Prepara la llamada a impresión de cadena
+    syscall                 # Imprime el nombre de la categoría (ya en mayúsculas)
+
+    lw $t1, 12($t1)         # Carga en $t1 el puntero al siguiente nodo de la lista
+    bne $t1, $t0, listarBucle  # Si el siguiente nodo no es el actual (cclist), salta al inicio del bucle
 
 listarCategoriaFin:
     	jr $ra # Regresa a la función que llamó a listarCategorias
@@ -439,6 +463,17 @@ error_701:
     	syscall
    	li $v0, 701
     	jr $ra
+instanciarHola:
+	addiu $sp, $sp, -4 # Reserva word en stack
+	sw $ra, 4($sp) # Guarda el valor de $ra (de retorno) de la funcion que invoca a newcategory
+	la $a0, instanciar  # Carga la direccion de la cadena "Ingrese el nombre de una categoria"
+	jal getblock
+	move $a2, $v0 # Guardo en $a2 el valor de retorno de getblock (direccion del nombre de la categoria)
+	li $v0, 0 # Indica que la operacion fue exitosa 
+	lw $ra, 4($sp) # Recupera la direccion de retorno de la linea 96
+	addiu $sp, $sp, 4 # Restaura stack
+	jr $ra # Para retornar a la linea 3 (j menubucle)
+	    
 # a0: list address
 # a1: NULL if category, node address if object
 # v0: node address added
@@ -515,7 +550,7 @@ getblock: # Funcion encargada de asignar memoria a cada nodo
 	syscall	
 	jal smalloc #salta a smalloc para obtener un bloque de memoria 
 	move $a0, $v0 # guarda en a0 la direccion de heap + 16 bytes. En v0 se encuentra el valor retornado por smalloc, es decir, la direccion de memoria asiganada
-	li $a1, 16 # Establece que el bloque tiene tamaño de 16 bytes (4 words) para el ingreso del nombre (16 caracteres max)
+	li $a1, 16 # Establece que el bloque tiene tamaño de 16 bytes (4 words) 
 	li $v0, 8 # Para ingresar por pantalla nombre de la categoria u objeto y almacenarlo en la dirección que se había reservado con smalloc
 	syscall
 	move $v0, $a0 # Vuelvo a mover la direccion de memoria asiganada a v0 para que sea el valor de retorno de getblock
